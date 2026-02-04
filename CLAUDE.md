@@ -94,7 +94,7 @@ The `cl/` module provides 10 CL algorithms with a unified interface.
 
 | Category | Algorithm | Description |
 |----------|-----------|-------------|
-| Regularization | `ewc` | Elastic Weight Consolidation |
+| Regularization | `ewc` | Elastic Weight Consolidation (Online EWC with Fisher accumulation) |
 | Regularization | `lwf` | Learning without Forgetting |
 | Replay | `replay` | Experience Replay with balanced sampling |
 | Replay | `derpp` | Dark Experience Replay++ |
@@ -110,7 +110,7 @@ The `cl/` module provides 10 CL algorithms with a unified interface.
 from cl import CLTrainer, CLEvaluator, ALGORITHMS
 
 # Initialize trainer
-trainer = CLTrainer(model, 'ewc', device, config={'ewc_importance': 1000})
+trainer = CLTrainer(model, 'ewc', device, config={'ewc_importance': 1000, 'ewc_decay': 0.9})
 
 # Train on each task
 for task_id, (train_loader, val_loader, task_classes) in enumerate(tasks):
