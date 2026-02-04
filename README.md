@@ -71,3 +71,37 @@ model = RadarTransformer(num_classes=5, spatial_encoder='conv3d', depth_dim=10, 
 | CI4R | ResNet18(in_channels=1) | (B, 1, 128, 128) | 11 |
 | RadHAR | RadarTransformer(spatial_encoder='conv3d') | (B, 60, 10, 32, 32) | 5 |
 | DIAT | ResNet18(in_channels=1) | (B, 1, 224, 224) | 6 |
+
+## Continual Learning Algorithms
+
+| Algorithm | Category | Description | Model Support |
+|-----------|----------|-------------|---------------|
+| `naive` | Baseline | Fine-tuning without any CL strategy | All |
+| `ewc` | Regularization | Elastic Weight Consolidation - penalizes changes to important parameters | All |
+| `lwf` | Regularization | Learning without Forgetting - knowledge distillation from old model | All |
+| `replay` | Replay | Experience Replay - stores and replays past samples | All |
+| `derpp` | Replay | Dark Experience Replay++ - replay with logit distillation | All |
+| `co2l` | Contrastive | Contrastive Continual Learning - supervised contrastive with relation distillation | All |
+| `ease` | Adapter | Expandable Subspace Ensemble - task-specific adapters with prototype classifier | All |
+| `l2p` | Prompt | Learning to Prompt - learnable prompt pool with key-query selection | Transformer |
+| `coda` | Prompt | CODA-Prompt - attention-weighted prompt composition | Transformer |
+| `dualprompt` | Prompt | DualPrompt - general + expert prompts | Transformer |
+
+### Usage
+
+```python
+from cl import CLTrainer, CLEvaluator
+
+# Train with EWC
+trainer = CLTrainer(model, 'ewc', device, config={'ewc_importance': 1000})
+
+for task_id, (train_loader, val_loader, task_classes) in enumerate(tasks):
+    trainer.train_task(task_id, train_loader, val_loader, task_classes, epochs=30)
+    trainer.after_task(train_loader, task_classes)
+```
+
+```bash
+# Run CL benchmark
+python trainings/train_cl.py --dataset drc --setting scene --algorithm ewc --epochs 30
+python trainings/train_cl.py --dataset ci4r --setting class --algorithm ease --epochs 50
+```
