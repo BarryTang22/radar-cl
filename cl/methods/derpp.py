@@ -68,7 +68,11 @@ class BalancedDERPlusPlus:
 
         for c, buffer in self.class_buffers.items():
             if buffer:
-                class_samples = random.choices(buffer, k=min(per_class, len(buffer)))
+                k = min(per_class, len(buffer))
+                if len(buffer) >= k:
+                    class_samples = random.sample(buffer, k=k)
+                else:
+                    class_samples = random.choices(buffer, k=k)
                 samples.extend(class_samples)
 
         if not samples:
@@ -85,8 +89,9 @@ class BalancedDERPlusPlus:
         for l in logit_list:
             if l.size(0) < max_classes:
                 pad = torch.full((max_classes - l.size(0),), float('-inf'))
-                l = torch.cat([l, pad])
-            padded_logits.append(l)
+                padded_logits.append(torch.cat([l, pad]))
+            else:
+                padded_logits.append(l)
         logits = torch.stack(padded_logits)
         return data, labels, logits
 
@@ -94,7 +99,7 @@ class BalancedDERPlusPlus:
         """Compute replay loss with symmetric masking."""
         data, labels, old_logits = self.sample(batch_size)
         if data is None:
-            return 0
+            return torch.tensor(0.0, device=device)
 
         data = data.to(device)
         labels = labels.to(device)
@@ -111,7 +116,7 @@ class BalancedDERPlusPlus:
         if mask.any():
             mse_loss = F.mse_loss(mse_new[mask], mse_old[mask])
         else:
-            mse_loss = 0
+            mse_loss = torch.tensor(0.0, device=device)
 
         if active_classes is not None:
             mask = torch.ones(new_logits.size(-1), dtype=torch.bool, device=device)
