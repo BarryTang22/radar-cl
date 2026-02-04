@@ -131,7 +131,7 @@ class CLEvaluator:
                     if prompt_method == 'l2p':
                         prompts = prompt_module.select_prompts(query)
                     elif prompt_method == 'coda':
-                        prompts = prompt_module.get_prompt(query)
+                        prompts = prompt_module.get_prompt(query, train=False)
                     elif prompt_method == 'dualprompt':
                         prompts = prompt_module.get_prompt(query)
                     else:

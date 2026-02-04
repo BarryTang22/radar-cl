@@ -156,8 +156,10 @@ class CLTrainer:
             pool_size = self.config.get('pool_size', 100)
             prompt_length = self.config.get('prompt_length', 8)
             ortho_weight = self.config.get('ortho_weight', 0.1)
+            n_tasks = self.config.get('n_tasks', 3)
             self.cl_params['coda'] = CODAPrompt(pool_size=pool_size, prompt_length=prompt_length,
-                                                 embed_dim=self.feature_dim, ortho_weight=ortho_weight)
+                                                 embed_dim=self.feature_dim, n_tasks=n_tasks,
+                                                 ortho_weight=ortho_weight)
             self.cl_params['coda'].to(self.device)
         elif self.algorithm == 'dualprompt':
             g_prompt_length = self.config.get('g_prompt_length', 5)
@@ -214,7 +216,7 @@ class CLTrainer:
                 if self.algorithm == 'l2p':
                     prompts = self.cl_params['l2p'].select_prompts(query)
                 elif self.algorithm == 'coda':
-                    prompts = self.cl_params['coda'].get_prompt(query)
+                    prompts = self.cl_params['coda'].get_prompt(query, train=True)
                 elif self.algorithm == 'dualprompt':
                     prompts = self.cl_params['dualprompt'].get_prompt(query)
 
@@ -393,7 +395,7 @@ class CLTrainer:
                     if self.algorithm == 'l2p':
                         prompts = prompt_module.select_prompts(query)
                     elif self.algorithm == 'coda':
-                        prompts = prompt_module.get_prompt(query)
+                        prompts = prompt_module.get_prompt(query, train=False)
                     elif self.algorithm == 'dualprompt':
                         prompts = prompt_module.get_prompt(query)
                     else:

@@ -394,6 +394,7 @@ def run_benchmark(dataset_name, setting, algorithm, epochs, seed, device, log_di
         print(f"Buffer: {buffer_ratio*100:.0f}% of {total_train_samples} samples = {buffer_size}")
 
     # Initialize trainer and evaluator
+    n_tasks = len(task_data) if task_data else len(tasks)
     cl_config = {
         'buffer_size': buffer_size,
         'ewc_importance': 1000,
@@ -411,6 +412,7 @@ def run_benchmark(dataset_name, setting, algorithm, epochs, seed, device, log_di
         'ortho_weight': 0.1,
         'g_prompt_length': 5,
         'e_pool_size': 10,
+        'n_tasks': n_tasks,
     }
 
     trainer = CLTrainer(model, algorithm, device, cl_config)
