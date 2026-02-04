@@ -104,7 +104,7 @@ DMM/DRC files follow: `{participant_id}_{class_label}_{c}_{timestep}.npy`
 
 ## Continual Learning Module
 
-The `cl/` module provides 10 CL algorithms with a unified interface.
+The `cl/` module provides 11 CL algorithms with a unified interface.
 
 ### Algorithms
 
@@ -119,6 +119,7 @@ The `cl/` module provides 10 CL algorithms with a unified interface.
 | Prompt | `l2p` | Learning to Prompt (transformer only) |
 | Prompt | `coda` | CODA-Prompt (transformer only) |
 | Prompt | `dualprompt` | DualPrompt (transformer only) |
+| Hybrid | `epb` | Elastic Prompt-Backbone (HEC + PCF + FAL, prompt-based) |
 
 ### Usage
 

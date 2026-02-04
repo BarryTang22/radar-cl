@@ -8,8 +8,10 @@ from .ease import EASE
 from .l2p import L2P
 from .coda import CODAPrompt
 from .dualprompt import DualPrompt
+from .epb import EPB, HierarchicalEWC, FeatureAnchor
 
 __all__ = [
     'EWC', 'LwF', 'BalancedReplayBuffer', 'BalancedDERPlusPlus',
-    'Co2L', 'EASE', 'L2P', 'CODAPrompt', 'DualPrompt'
+    'Co2L', 'EASE', 'L2P', 'CODAPrompt', 'DualPrompt',
+    'EPB', 'HierarchicalEWC', 'FeatureAnchor'
 ]
