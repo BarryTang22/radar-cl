@@ -7,6 +7,8 @@ Contains common components used across CL methods:
 - EASEAdapter: Lightweight adapter for EASE
 """
 
+import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -126,9 +128,9 @@ class CosineLinear(nn.Module):
         self.num_classes = num_classes
         self.weight = nn.Parameter(torch.randn(num_classes, in_features) * 0.01)
         if sigma:
-            self.sigma = nn.Parameter(torch.ones(1) * 10.0)
+            self.sigma = nn.Parameter(torch.ones(1) * 1.0)
         else:
-            self.register_buffer('sigma', torch.ones(1) * 10.0)
+            self.register_buffer('sigma', torch.ones(1) * 1.0)
         self.use_sigma = sigma
 
     def forward(self, x):
@@ -151,17 +153,22 @@ class CosineLinear(nn.Module):
 class EASEAdapter(nn.Module):
     """Lightweight adapter for EASE method.
 
-    Projects features into a task-specific subspace.
-    Returns SUBSPACE FEATURES (not residual) for concatenation.
+    Projects features into a task-specific subspace with residual connection.
+    Uses LoRA-style initialization (zeros for up projection).
 
     Reference: CVPR 2024 EASE paper - down-up projection structure
     """
 
-    def __init__(self, embed_dim=128, bottleneck_dim=32):
+    def __init__(self, embed_dim=128, bottleneck_dim=16):
         super().__init__()
         self.down = nn.Linear(embed_dim, bottleneck_dim)
         self.up = nn.Linear(bottleneck_dim, embed_dim)
         self.scale = nn.Parameter(torch.ones(1) * 0.1)
+        # LoRA-style initialization
+        nn.init.kaiming_uniform_(self.down.weight, a=math.sqrt(5))
+        nn.init.zeros_(self.up.weight)
+        nn.init.zeros_(self.down.bias)
+        nn.init.zeros_(self.up.bias)
 
     def forward(self, x):
-        return self.scale * self.up(F.relu(self.down(x)))
+        return self.scale * self.up(F.relu(self.down(x))) + x
