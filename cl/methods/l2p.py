@@ -1,4 +1,4 @@
-"""Learning to Prompt."""
+"""Learning to Prompt - original prompt tuning (prepend to input)."""
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -11,7 +11,7 @@ class L2P(nn.Module):
     Official: https://github.com/google-research/l2p
 
     Uses a learnable prompt pool with key-query matching to select
-    task-relevant prompts without explicit task identity.
+    task-relevant prompts. Prompts are prepended to input sequence.
 
     Args:
         pool_size: Number of prompts in the pool (M in paper)
@@ -20,14 +20,18 @@ class L2P(nn.Module):
         top_k: Number of prompts to select
     """
 
-    def __init__(self, pool_size=10, prompt_length=5, embed_dim=128, top_k=5):
+    def __init__(self, pool_size=10, prompt_length=5, embed_dim=128,
+                 num_heads=6, num_layers=4, top_k=5):
         super().__init__()
         self.pool_size = pool_size
         self.prompt_length = prompt_length
         self.embed_dim = embed_dim
         self.top_k = top_k
 
-        self.prompt_pool = nn.Parameter(torch.randn(pool_size, prompt_length, embed_dim) * 0.02)
+        # Prompt pool: (pool_size, prompt_length, embed_dim)
+        self.prompt_pool = nn.Parameter(
+            torch.randn(pool_size, prompt_length, embed_dim) * 0.02
+        )
         self.prompt_keys = nn.Parameter(torch.randn(pool_size, embed_dim) * 0.02)
 
         self.register_buffer('prompt_freq', torch.zeros(pool_size))
@@ -37,7 +41,11 @@ class L2P(nn.Module):
         return super().to(device)
 
     def select_prompts(self, query):
-        """Select top-k prompts based on query similarity."""
+        """Select top-k prompts based on query similarity.
+
+        Returns:
+            Tensor of shape (B, top_k * prompt_length, embed_dim) to prepend to input.
+        """
         query = F.normalize(query, dim=-1)
         keys = F.normalize(self.prompt_keys, dim=-1)
         similarities = torch.matmul(query, keys.T)
@@ -49,8 +57,13 @@ class L2P(nn.Module):
                     self.prompt_freq[idx] += 1
 
         batch_size = query.size(0)
+        # prompt_pool: (pool_size, prompt_length, embed_dim)
         selected = self.prompt_pool[indices]
-        return selected.view(batch_size, self.top_k * self.prompt_length, self.embed_dim)
+        # selected: (B, top_k, prompt_length, embed_dim)
+
+        # Reshape to (B, top_k * prompt_length, embed_dim)
+        prompts = selected.reshape(batch_size, -1, self.embed_dim)
+        return prompts
 
     def get_prompt_loss(self, query):
         """Pull loss: encourage selected prompts to match query."""

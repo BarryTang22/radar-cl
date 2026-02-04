@@ -149,8 +149,11 @@ class CLTrainer:
             pool_size = self.config.get('pool_size', 20)
             prompt_length = self.config.get('prompt_length', 5)
             top_k = self.config.get('top_k', 5)
+            num_heads = getattr(self.model, 'nhead', 6)
+            num_layers = getattr(self.model, 'temporal_layers', 4)
             self.cl_params['l2p'] = L2P(pool_size=pool_size, prompt_length=prompt_length,
-                                        embed_dim=self.feature_dim, top_k=top_k)
+                                        embed_dim=self.feature_dim, num_heads=num_heads,
+                                        num_layers=num_layers, top_k=top_k)
             self.cl_params['l2p'].to(self.device)
         elif self.algorithm == 'coda':
             pool_size = self.config.get('pool_size', 100)
@@ -163,11 +166,20 @@ class CLTrainer:
             self.cl_params['coda'].to(self.device)
         elif self.algorithm == 'dualprompt':
             g_prompt_length = self.config.get('g_prompt_length', 5)
+            e_prompt_length = self.config.get('e_prompt_length', 5)
             e_pool_size = self.config.get('e_pool_size', 10)
             top_k = self.config.get('top_k', 5)
-            self.cl_params['dualprompt'] = DualPrompt(g_prompt_length=g_prompt_length,
-                                                       e_pool_size=e_pool_size,
-                                                       embed_dim=self.feature_dim, top_k=top_k)
+            num_heads = getattr(self.model, 'nhead', 6)
+            num_layers = getattr(self.model, 'temporal_layers', 4)
+            self.cl_params['dualprompt'] = DualPrompt(
+                g_prompt_length=g_prompt_length,
+                e_prompt_length=e_prompt_length,
+                e_pool_size=e_pool_size,
+                embed_dim=self.feature_dim,
+                num_heads=num_heads,
+                num_layers=num_layers,
+                top_k=top_k
+            )
             self.cl_params['dualprompt'].to(self.device)
 
     def _setup_optimizer(self, lr):
@@ -210,15 +222,18 @@ class CLTrainer:
 
             # Handle prompt-based methods
             elif self.algorithm in ['l2p', 'coda', 'dualprompt'] and hasattr(self.model, 'get_query'):
-                with torch.no_grad():
+                # DualPrompt needs query gradients for key-query learning
+                # L2P/CODA use frozen query for prompt selection
+                if self.algorithm == 'dualprompt':
                     query = self.model.get_query(data)
-
-                if self.algorithm == 'l2p':
-                    prompts = self.cl_params['l2p'].select_prompts(query)
-                elif self.algorithm == 'coda':
-                    prompts = self.cl_params['coda'].get_prompt(query, train=True)
-                elif self.algorithm == 'dualprompt':
                     prompts = self.cl_params['dualprompt'].get_prompt(query)
+                else:
+                    with torch.no_grad():
+                        query = self.model.get_query(data)
+                    if self.algorithm == 'l2p':
+                        prompts = self.cl_params['l2p'].select_prompts(query)
+                    elif self.algorithm == 'coda':
+                        prompts = self.cl_params['coda'].get_prompt(query, train=True)
 
                 outputs = self.model(data, prompts=prompts)
             else:
