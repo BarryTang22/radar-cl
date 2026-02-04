@@ -10,7 +10,9 @@
       "WebFetch(domain:en.wikipedia.org)",
       "WebFetch(domain:openaccess.thecvf.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "WebFetch(domain:research.google)"
+      "WebFetch(domain:research.google)",
+      "Bash(git diff-tree:*)",
+      "Bash(git checkout:*)"
     ]
   }
 }

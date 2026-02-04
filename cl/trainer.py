@@ -149,11 +149,8 @@ class CLTrainer:
             pool_size = self.config.get('pool_size', 20)
             prompt_length = self.config.get('prompt_length', 5)
             top_k = self.config.get('top_k', 5)
-            num_heads = getattr(self.model, 'nhead', 6)
-            num_layers = getattr(self.model, 'temporal_layers', 4)
             self.cl_params['l2p'] = L2P(pool_size=pool_size, prompt_length=prompt_length,
-                                        embed_dim=self.feature_dim, num_heads=num_heads,
-                                        num_layers=num_layers, top_k=top_k)
+                                        embed_dim=self.feature_dim, top_k=top_k)
             self.cl_params['l2p'].to(self.device)
         elif self.algorithm == 'coda':
             pool_size = self.config.get('pool_size', 100)
