@@ -25,7 +25,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from models import ResNet18, RadarTransformer
 from datasets import (MicroDopplerDataset, RadarCubeDataset, CI4RDataset,
-                      RadHARVoxelDataset, DIATDataset, get_files_from_folders, split_random)
+                      RadHARVoxelDataset, DIATDataset, get_files_from_folders, split_random,
+                      DATA_ROOT)
 from cl import CLTrainer, CLEvaluator, compute_cl_metrics, ALGORITHMS
 from cl.trainer import make_incremental_model, get_feature_dim
 
@@ -111,8 +112,7 @@ def create_model(model_name, num_classes, device):
 
 def create_dmm_task_datasets(task_name, seed=42):
     """Create train/val/test datasets for DMM scene task."""
-    base = get_base_path()
-    folder = os.path.join(base, 'datasets', 'dmm', task_name)
+    folder = os.path.join(DATA_ROOT, 'dmm', task_name)
     files = get_files_from_folders([folder])
     if not files:
         return None, None, None
@@ -125,8 +125,7 @@ def create_dmm_task_datasets(task_name, seed=42):
 
 def create_drc_task_datasets(task_name, seed=42):
     """Create train/val/test datasets for DRC scene task."""
-    base = get_base_path()
-    folder = os.path.join(base, 'datasets', 'drc', task_name)
+    folder = os.path.join(DATA_ROOT, 'drc', task_name)
     files = get_files_from_folders([folder])
     if not files:
         return None, None, None
@@ -139,8 +138,7 @@ def create_drc_task_datasets(task_name, seed=42):
 
 def create_ci4r_frequency_task_datasets(frequency, seed=42):
     """Create datasets for CI4R frequency-based task."""
-    base = get_base_path()
-    root_dir = os.path.join(base, 'datasets', 'ci4r')
+    root_dir = os.path.join(DATA_ROOT, 'ci4r')
     full_ds = CI4RDataset(root_dir, frequency=frequency, augment=False, normalize='minmax')
     if len(full_ds) == 0:
         return None, None, None
@@ -178,8 +176,7 @@ def filter_dataset_by_classes(dataset, classes, class_attr='labels'):
 
 def create_ci4r_class_task_datasets(classes, seed=42):
     """Create datasets for CI4R class-based task."""
-    base = get_base_path()
-    root_dir = os.path.join(base, 'datasets', 'ci4r')
+    root_dir = os.path.join(DATA_ROOT, 'ci4r')
     all_train, all_val, all_test = [], [], []
     for freq in ['Xethru', '24GHz', '77GHz']:
         full_ds = CI4RDataset(root_dir, frequency=freq, augment=False, normalize='minmax')
@@ -208,8 +205,7 @@ def create_ci4r_class_task_datasets(classes, seed=42):
 def create_ci4r_mixed_task_datasets(task_spec, seed=42):
     """Create datasets for CI4R mixed task."""
     freq, classes = task_spec
-    base = get_base_path()
-    root_dir = os.path.join(base, 'datasets', 'ci4r')
+    root_dir = os.path.join(DATA_ROOT, 'ci4r')
     full_ds = CI4RDataset(root_dir, frequency=freq, augment=False, normalize='minmax')
     if len(full_ds) == 0:
         return None, None, None
@@ -230,8 +226,7 @@ def create_ci4r_mixed_task_datasets(task_spec, seed=42):
 
 def create_radhar_class_task_datasets(activities, seed=42):
     """Create datasets for RadHAR class-based task."""
-    base = get_base_path()
-    root_dir = os.path.join(base, 'datasets', 'radhar', 'Web_Radhar_Shared_Dataset')
+    root_dir = os.path.join(DATA_ROOT, 'radhar', 'Web_Radhar_Shared_Dataset')
     activity_map = {a: i for i, a in enumerate(['boxing', 'jack', 'jump', 'squats', 'walk'])}
     class_indices = [activity_map[a] for a in activities if a in activity_map]
     train_ds = RadHARVoxelDataset(root_dir, split='train', augment=True, normalize='raw_batchnorm')
@@ -253,8 +248,7 @@ def create_radhar_class_task_datasets(activities, seed=42):
 
 def create_diat_class_task_datasets(classes, seed=42):
     """Create datasets for DIAT class-based task."""
-    base = get_base_path()
-    root_dir = os.path.join(base, 'datasets', 'diat', 'DIAT-RadHAR')
+    root_dir = os.path.join(DATA_ROOT, 'diat', 'DIAT-RadHAR')
     files, labels = [], []
     for class_name, class_idx in DIATDataset.CLASSES.items():
         if class_idx not in classes:

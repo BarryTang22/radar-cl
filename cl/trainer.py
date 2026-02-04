@@ -436,10 +436,24 @@ class CLTrainer:
         if self.algorithm == 'ease' and 'ease' in self.cl_params:
             self.cl_params['ease'].extract_prototypes(train_loader, self.model, self.device, task_classes)
 
-        # Update EWC Fisher
+        # Update EWC Fisher with Online EWC accumulation
         if self.algorithm == 'ewc':
             importance = self.config.get('ewc_importance', 1000)
-            self.cl_params['ewc'] = EWC(self.model, train_loader, self.device, importance=importance)
+            decay_factor = self.config.get('ewc_decay', 0.9)
+            new_ewc = EWC(self.model, train_loader, self.device, importance=importance)
+
+            if 'ewc' in self.cl_params:
+                old_ewc = self.cl_params['ewc']
+                # Accumulate Fisher with decay: F_new = decay * F_old + F_current
+                for n in new_ewc.fisher:
+                    if n in old_ewc.fisher and new_ewc.fisher[n].shape == old_ewc.fisher[n].shape:
+                        new_ewc.fisher[n] = decay_factor * old_ewc.fisher[n] + new_ewc.fisher[n]
+                # Keep the oldest parameters as anchor point
+                for n in new_ewc.params:
+                    if n in old_ewc.params and new_ewc.params[n].shape == old_ewc.params[n].shape:
+                        new_ewc.params[n] = old_ewc.params[n]
+
+            self.cl_params['ewc'] = new_ewc
 
         # Update LwF old model
         if self.algorithm == 'lwf':

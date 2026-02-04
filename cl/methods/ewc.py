@@ -4,14 +4,16 @@ import torch.nn.functional as F
 
 
 class EWC:
-    """Elastic Weight Consolidation.
+    """Elastic Weight Consolidation (Online EWC variant).
 
     Paper: Kirkpatrick et al. "Overcoming catastrophic forgetting" (PNAS 2017)
-    Official: https://github.com/ContinualAI/avalanche
+    Online EWC: Schwarz et al. "Progress & Compress" (ICML 2018)
+    Reference: https://github.com/ContinualAI/avalanche
 
-    After training on each task, computes the Fisher Information Matrix
-    to estimate parameter importance. During training on new tasks,
-    adds a penalty proportional to the squared change in important parameters.
+    Computes the Fisher Information Matrix to estimate parameter importance.
+    Uses Online EWC accumulation: F_new = decay * F_old + F_current, where
+    decay factor (default 0.9) controls how much previous Fisher info is retained.
+    This prevents catastrophic forgetting of earlier tasks when learning new ones.
 
     Args:
         model: The neural network model
