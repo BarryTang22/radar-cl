@@ -1,7 +1,7 @@
 """Unified Continual Learning Trainer.
 
-Provides CLTrainer class for training with all 11 CL algorithms:
-- naive, ewc, lwf, replay, derpp, co2l, ease, l2p, coda, dualprompt, epb
+Provides CLTrainer class for training with all 12 CL algorithms:
+- naive, ewc, lwf, replay, derpp, co2l, ease, l2p, coda, dualprompt, epb, pgsu
 """
 
 import copy
@@ -12,7 +12,8 @@ import torch.nn.functional as F
 
 from .utils import IncrementalClassifier, TaskTracker
 from .methods import (EWC, LwF, BalancedReplayBuffer, BalancedDERPlusPlus,
-                      Co2L, EASE, L2P, CODAPrompt, DualPrompt, EPB)
+                      Co2L, EASE, L2P, CODAPrompt, DualPrompt, EPB,
+                      PGSU, compute_task_centroid)
 
 
 # Models that support prompt-based methods (have transformer architecture)
@@ -93,12 +94,12 @@ def freeze_backbone(model):
 class CLTrainer:
     """Unified Continual Learning Trainer.
 
-    Supports all 10 CL algorithms through a single interface.
+    Supports all 12 CL algorithms through a single interface.
 
     Args:
         model: The neural network model
         algorithm: CL algorithm name ('naive', 'ewc', 'lwf', 'replay', 'derpp',
-                   'co2l', 'ease', 'l2p', 'coda', 'dualprompt')
+                   'co2l', 'ease', 'l2p', 'coda', 'dualprompt', 'epb', 'pgsu')
         device: Device to run computations on
         config: Optional configuration dict with hyperparameters
     """
@@ -215,6 +216,37 @@ class CLTrainer:
                 use_replay=self.config.get('epb_use_replay', False),
                 replay_buffer_size=buffer_size,
             )
+        elif self.algorithm == 'pgsu':
+            # Create prompt method for PGSU (uses L2P by default, configurable to CODA)
+            pgsu_prompt_type = self.config.get('pgsu_prompt_type', 'l2p')
+            pool_size = self.config.get('pool_size', 20)
+            prompt_length = self.config.get('prompt_length', 5)
+            top_k = self.config.get('top_k', 5)
+
+            if pgsu_prompt_type == 'coda':
+                n_tasks = self.config.get('n_tasks', 3)
+                ortho_weight = self.config.get('ortho_weight', 0.1)
+                prompt_method = CODAPrompt(
+                    pool_size=pool_size, prompt_length=prompt_length,
+                    embed_dim=self.feature_dim, n_tasks=n_tasks,
+                    ortho_weight=ortho_weight
+                )
+            else:
+                prompt_method = L2P(
+                    pool_size=pool_size, prompt_length=prompt_length,
+                    embed_dim=self.feature_dim, top_k=top_k
+                )
+            prompt_method.to(self.device)
+            self.cl_params['pgsu_prompt'] = prompt_method
+
+            self.cl_params['pgsu'] = PGSU(
+                base_lr=self.config.get('lr', 1e-3),
+                min_lr_scale=self.config.get('pgsu_min_lr_scale', 0.01),
+                max_lr_scale=self.config.get('pgsu_max_lr_scale', 1.0),
+                min_replay=self.config.get('pgsu_min_replay', 0.1),
+                max_replay=self.config.get('pgsu_max_replay', 0.5),
+                buffer_size=self.config.get('pgsu_buffer_size', 300),
+            )
 
     def _setup_optimizer(self, lr):
         """Setup optimizer with algorithm-specific parameters."""
@@ -232,6 +264,20 @@ class CLTrainer:
         elif self.algorithm == 'epb' and 'epb' in self.cl_params:
             epb = self.cl_params['epb']
             params = list(self.model.parameters()) + list(epb.prompt_method.parameters())
+        elif self.algorithm == 'pgsu' and 'pgsu' in self.cl_params:
+            pgsu = self.cl_params['pgsu']
+            backbone_lr_scale = pgsu.get_backbone_lr_scale(pgsu.current_novelty)
+            backbone_lr = lr * backbone_lr_scale
+            classifier = get_classifier_module(self.model)
+            classifier_params = set(classifier.parameters()) if classifier is not None else set()
+            backbone_params = [p for p in self.model.parameters() if p not in classifier_params]
+            classifier_param_list = [p for p in self.model.parameters() if p in classifier_params]
+            param_groups = [
+                {'params': backbone_params, 'lr': backbone_lr},
+                {'params': classifier_param_list, 'lr': lr},
+                {'params': list(self.cl_params['pgsu_prompt'].parameters()), 'lr': lr},
+            ]
+            return optim.Adam(param_groups, lr=lr)
         else:
             params = self.model.parameters()
 
@@ -247,6 +293,8 @@ class CLTrainer:
             self.cl_params['coda'].train()
         elif self.algorithm == 'epb' and 'epb' in self.cl_params:
             self.cl_params['epb'].prompt_method.train()
+        elif self.algorithm == 'pgsu' and 'pgsu_prompt' in self.cl_params:
+            self.cl_params['pgsu_prompt'].train()
 
         for batch_idx, (data, labels) in enumerate(dataloader):
             data, labels = data.to(self.device), labels.to(self.device)
@@ -279,6 +327,17 @@ class CLTrainer:
             # Handle EPB forward pass
             elif self.algorithm == 'epb' and 'epb' in self.cl_params:
                 outputs, epb_query = self.cl_params['epb'].forward(data, self.device)
+
+            # Handle PGSU forward pass (reuses prompt forward path)
+            elif self.algorithm == 'pgsu' and 'pgsu_prompt' in self.cl_params and hasattr(self.model, 'get_query'):
+                with torch.no_grad():
+                    query = self.model.get_query(data)
+                prompt_method = self.cl_params['pgsu_prompt']
+                if hasattr(prompt_method, 'select_prompts'):
+                    prompts = prompt_method.select_prompts(query)
+                else:
+                    prompts = prompt_method.get_prompt(query, train=True)
+                outputs = self.model(data, prompts=prompts)
             else:
                 outputs = self.model(data)
 
@@ -361,6 +420,29 @@ class CLTrainer:
                             replay_masked = replay_out
                         loss += criterion(replay_masked, replay_y)
 
+            # Add PGSU losses (prompt loss + replay)
+            elif self.algorithm == 'pgsu' and 'pgsu' in self.cl_params:
+                prompt_method = self.cl_params['pgsu_prompt']
+                if hasattr(prompt_method, 'get_prompt_loss'):
+                    loss += 0.1 * prompt_method.get_prompt_loss(query)
+                # Replay
+                pgsu = self.cl_params['pgsu']
+                replay_batch = max(1, int(data.size(0) * pgsu.get_replay_ratio()))
+                replay_data, replay_labels = pgsu.get_batch(replay_batch)
+                if replay_data is not None:
+                    replay_data = replay_data.to(self.device)
+                    replay_labels = replay_labels.to(self.device)
+                    with torch.no_grad():
+                        rq = self.model.get_query(replay_data)
+                    if hasattr(prompt_method, 'select_prompts'):
+                        rp = prompt_method.select_prompts(rq)
+                    else:
+                        rp = prompt_method.get_prompt(rq, train=True)
+                    replay_outputs = self.model(replay_data, prompts=rp)
+                    if active_classes is not None and inc_classifier is not None:
+                        replay_outputs = inc_classifier.get_masked_logits(replay_outputs, active_classes)
+                    loss += criterion(replay_outputs, replay_labels)
+
             loss.backward()
             optimizer.step()
 
@@ -406,6 +488,16 @@ class CLTrainer:
             if ease.task_id > 0:
                 freeze_backbone(self.model)
 
+        # PGSU: compute task novelty and set backbone LR before optimizer creation
+        if self.algorithm == 'pgsu' and 'pgsu' in self.cl_params and hasattr(self.model, 'get_query'):
+            centroid = compute_task_centroid(self.model, train_loader, self.device)
+            pgsu = self.cl_params['pgsu']
+            pgsu.compute_task_novelty(centroid)
+            print(f"    PGSU: novelty={pgsu.current_novelty:.4f}, "
+                  f"backbone_lr_scale={pgsu.get_backbone_lr_scale(pgsu.current_novelty):.4f}, "
+                  f"replay_ratio={pgsu.get_replay_ratio():.4f}")
+            self.cl_params['_pgsu_centroid'] = centroid
+
         optimizer = self._setup_optimizer(lr)
         criterion = nn.CrossEntropyLoss()
         scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
@@ -421,6 +513,8 @@ class CLTrainer:
             prompt_module = self.cl_params.get(self.algorithm)
         elif self.algorithm == 'epb' and 'epb' in self.cl_params:
             prompt_module = self.cl_params['epb'].prompt_method
+        elif self.algorithm == 'pgsu' and 'pgsu_prompt' in self.cl_params:
+            prompt_module = self.cl_params['pgsu_prompt']
 
         for epoch in range(epochs):
             train_loss, train_acc = self._train_epoch(
@@ -473,7 +567,7 @@ class CLTrainer:
                         prompts = prompt_module.get_prompt(query, train=False)
                     elif self.algorithm == 'dualprompt':
                         prompts = prompt_module.get_prompt(query)
-                    elif self.algorithm == 'epb':
+                    elif self.algorithm in ('epb', 'pgsu'):
                         if hasattr(prompt_module, 'select_prompts'):
                             prompts = prompt_module.select_prompts(query)
                         else:
@@ -559,6 +653,18 @@ class CLTrainer:
             if epb.use_replay:
                 epb.add_to_replay(train_loader, task_classes)
 
+        # PGSU: store centroid, update prompt method, add replay samples
+        if self.algorithm == 'pgsu' and 'pgsu' in self.cl_params:
+            pgsu = self.cl_params['pgsu']
+            if '_pgsu_centroid' in self.cl_params:
+                pgsu.add_task_centroid(self.cl_params['_pgsu_centroid'])
+                del self.cl_params['_pgsu_centroid']
+            pgsu.add_samples(train_loader)
+            # Update prompt method task counter
+            prompt_method = self.cl_params.get('pgsu_prompt')
+            if prompt_method is not None and hasattr(prompt_method, 'update_task'):
+                prompt_method.update_task()
+
     def evaluate_all_tasks(self, test_loaders, task_classes_list):
         """Evaluate on all seen tasks.
 
@@ -575,6 +681,8 @@ class CLTrainer:
             prompt_module = self.cl_params.get(self.algorithm)
         elif self.algorithm == 'epb' and 'epb' in self.cl_params:
             prompt_module = self.cl_params['epb'].prompt_method
+        elif self.algorithm == 'pgsu' and 'pgsu_prompt' in self.cl_params:
+            prompt_module = self.cl_params['pgsu_prompt']
 
         accuracies = []
         for test_loader, task_classes in zip(test_loaders, task_classes_list):

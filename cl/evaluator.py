@@ -134,7 +134,7 @@ class CLEvaluator:
                         prompts = prompt_module.get_prompt(query, train=False)
                     elif prompt_method == 'dualprompt':
                         prompts = prompt_module.get_prompt(query)
-                    elif prompt_method == 'epb':
+                    elif prompt_method in ('epb', 'pgsu'):
                         if hasattr(prompt_module, 'select_prompts'):
                             prompts = prompt_module.select_prompts(query)
                         else:

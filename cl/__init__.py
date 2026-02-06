@@ -1,28 +1,30 @@
 """Continual Learning module for radar datasets.
 
-Provides 11 CL algorithms:
+Provides 12 CL algorithms:
 - Regularization: EWC, LwF
 - Replay: BalancedReplayBuffer, BalancedDERPlusPlus
 - Contrastive: Co2L
 - Adapter-based: EASE
 - Prompt-based: L2P, CODAPrompt, DualPrompt
-- Hybrid: EPB (Elastic Prompt-Backbone)
+- Hybrid: EPB (Elastic Prompt-Backbone), PGSU (Prompt-Guided Selective Update)
 """
 
 from .utils import IncrementalClassifier, TaskTracker, CosineLinear, EASEAdapter
 from .methods import (EWC, LwF, BalancedReplayBuffer, BalancedDERPlusPlus,
                       Co2L, EASE, L2P, CODAPrompt, DualPrompt,
-                      EPB, HierarchicalEWC, FeatureAnchor)
+                      EPB, HierarchicalEWC, FeatureAnchor,
+                      PGSU, compute_task_centroid)
 from .trainer import CLTrainer
 from .evaluator import CLEvaluator, compute_cl_metrics
 
-ALGORITHMS = ['naive', 'ewc', 'lwf', 'replay', 'derpp', 'co2l', 'ease', 'l2p', 'coda', 'dualprompt', 'epb']
+ALGORITHMS = ['naive', 'ewc', 'lwf', 'replay', 'derpp', 'co2l', 'ease', 'l2p', 'coda', 'dualprompt', 'epb', 'pgsu']
 
 __all__ = [
     'IncrementalClassifier', 'TaskTracker', 'CosineLinear', 'EASEAdapter',
     'EWC', 'LwF', 'BalancedReplayBuffer', 'BalancedDERPlusPlus',
     'Co2L', 'EASE', 'L2P', 'CODAPrompt', 'DualPrompt',
     'EPB', 'HierarchicalEWC', 'FeatureAnchor',
+    'PGSU', 'compute_task_centroid',
     'CLTrainer', 'CLEvaluator', 'compute_cl_metrics',
     'ALGORITHMS'
 ]
