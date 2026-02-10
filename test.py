@@ -1,96 +1,69 @@
-"""Test RangeAlignedFusionModel implementation."""
+"""Visualize the first sample from each of the 5 radar datasets."""
 
-import sys
-sys.path.insert(0, '.')
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+from PIL import Image
 
-import torch
-from datasets import create_fusion_dataloaders
-from models import RangeAlignedFusionModel, GatedRangeAlignedFusionModel
+from datasets.single import (
+    DATA_ROOT, get_mmdrive_folders, get_cube_folders, get_files_from_folders,
+    CI4RDataset, DIATDataset
+)
 
-print("=" * 60)
-print("Testing RangeAlignedFusionModel")
-print("=" * 60)
 
-# Create model
-model = RangeAlignedFusionModel(num_classes=4)
-print(f"\nModel created successfully")
+def load_dmm_sample():
+    files = get_files_from_folders(get_mmdrive_folders('1'))
+    data = np.load(files[0]).astype(np.float32)
+    return np.log1p(data)  # (21, 77)
 
-# Count parameters
-total_params = sum(p.numel() for p in model.parameters())
-trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-print(f"Total parameters: {total_params:,}")
-print(f"Trainable parameters: {trainable_params:,}")
 
-# Test with synthetic data
-print("\n--- Testing with synthetic data ---")
-batch_size = 4
-dmm = torch.randn(batch_size, 1, 21, 77)  # DMM: (B, 1, Range=21, Doppler=77)
-drc = torch.randn(batch_size, 21, 5, 5, 25)  # DRC: (B, T=21, V=5, H=5, R=25)
+def load_drc_sample():
+    files = get_files_from_folders(get_cube_folders('1'))
+    data = np.load(files[0]).astype(np.float32)
+    return np.log1p(data.sum(axis=(1, 2)))  # (T, V, H, R) -> (T, R)
 
-# Forward pass
-logits = model(dmm, drc)
-print(f"Input DMM shape: {dmm.shape}")
-print(f"Input DRC shape: {drc.shape}")
-print(f"Output logits shape: {logits.shape}")  # Expected: (4, 4)
 
-# Feature extraction
-features = model.get_features(dmm, drc)
-print(f"Features shape: {features.shape}")  # Expected: (4, 128)
+def load_ci4r_sample():
+    ds = CI4RDataset(os.path.join(DATA_ROOT, 'ci4r'), '77GHz', normalize='raw_batchnorm')
+    tensor, _ = ds[0]
+    return tensor.squeeze(0).numpy()  # (128, 128)
 
-# Test freeze/unfreeze
-print("\n--- Testing freeze/unfreeze ---")
-model.freeze_backbone()
-frozen_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
-print(f"Trainable params after freeze: {frozen_trainable:,}")
 
-model.unfreeze_backbone()
-unfrozen_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
-print(f"Trainable params after unfreeze: {unfrozen_trainable:,}")
+def load_radhar_sample():
+    root = os.path.join(DATA_ROOT, 'radhar', 'Web_Radhar_Shared_Dataset')
+    npz = np.load(os.path.join(root, 'Train_Data_voxels_boxing.npz'), allow_pickle=True)
+    voxel = npz['arr_0'][0].astype(np.float32)  # first sample, (60, 10, 32, 32)
+    mid = voxel.shape[0] // 2
+    return np.log1p(voxel[mid].sum(axis=0))  # sum depth -> (32, 32)
 
-# Test GatedRangeAlignedFusionModel
-print("\n" + "=" * 60)
-print("Testing GatedRangeAlignedFusionModel")
-print("=" * 60)
 
-gated_model = GatedRangeAlignedFusionModel(num_classes=4)
-gated_params = sum(p.numel() for p in gated_model.parameters())
-print(f"Total parameters: {gated_params:,}")
+def load_diat_sample():
+    root = os.path.join(DATA_ROOT, 'diat', 'DIAT-RadHAR')
+    for class_name in DIATDataset.CLASSES:
+        class_dir = os.path.join(root, class_name)
+        if os.path.isdir(class_dir):
+            for f in os.listdir(class_dir):
+                if f.lower().endswith(('.jpg', '.jpeg', '.png')):
+                    img = Image.open(os.path.join(class_dir, f)).convert('L')
+                    return np.array(img, dtype=np.float32)
 
-gated_logits = gated_model(dmm, drc)
-print(f"Output logits shape: {gated_logits.shape}")
 
-gated_features = gated_model.get_features(dmm, drc)
-print(f"Features shape: {gated_features.shape}")
+if __name__ == '__main__':
+    samples = [
+        ('DMM (21×77)', load_dmm_sample, 'viridis'),
+        ('DRC (T×R)', load_drc_sample, 'viridis'),
+        ('CI4R (128×128)', load_ci4r_sample, 'viridis'),
+        ('RadHAR (32×32)', load_radhar_sample, 'viridis'),
+        ('DIAT (grayscale)', load_diat_sample, 'gray'),
+    ]
 
-# Test with real dataloader
-print("\n" + "=" * 60)
-print("Testing with real dataloader (Scene 1)")
-print("=" * 60)
+    fig, axes = plt.subplots(1, 5, figsize=(20, 4))
+    for ax, (title, loader, cmap) in zip(axes, samples):
+        data = loader()
+        ax.imshow(data, aspect='auto', cmap=cmap)
+        ax.set_title(title)
+        ax.axis('off')
 
-train_loader, val_loader, test_loader = create_fusion_dataloaders(scene='1', batch_size=4)
-print(f"Train batches: {len(train_loader)}")
-print(f"Val batches: {len(val_loader)}")
-print(f"Test batches: {len(test_loader)}")
-
-# Get one batch
-dmm_batch, drc_batch, labels = next(iter(train_loader))
-print(f"\nBatch shapes:")
-print(f"  DMM: {dmm_batch.shape}")
-print(f"  DRC: {drc_batch.shape}")
-print(f"  Labels: {labels.shape}")
-
-# Forward pass with real data
-model.eval()
-with torch.no_grad():
-    logits = model(dmm_batch, drc_batch)
-    features = model.get_features(dmm_batch, drc_batch)
-
-print(f"\nForward pass results:")
-print(f"  Logits shape: {logits.shape}")
-print(f"  Features shape: {features.shape}")
-print(f"  Predicted classes: {logits.argmax(dim=1).tolist()}")
-print(f"  True labels: {labels.tolist()}")
-
-print("\n" + "=" * 60)
-print("All tests passed!")
-print("=" * 60)
+    fig.suptitle('First Sample per Dataset', fontsize=14)
+    plt.tight_layout()
+    plt.show()
