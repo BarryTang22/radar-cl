@@ -338,7 +338,8 @@ def run_benchmark(dataset_name, setting, algorithm, epochs, seed, device, log_di
         return None
 
     # Skip prompt-based methods for CNN models (EPB gracefully degrades to HEC-only for CNNs)
-    if algorithm in ['l2p', 'coda', 'dualprompt', 'pgsu'] and model_name not in TRANSFORMER_MODELS:
+    # Note: PGSU supports both transformer and CNN models via dual-path architecture
+    if algorithm in ['l2p', 'coda', 'dualprompt'] and model_name not in TRANSFORMER_MODELS:
         print(f"\nSkipping {algorithm} for {dataset_name} - {algorithm} requires transformer model, got {model_name}")
         return None
 
@@ -427,6 +428,15 @@ def run_benchmark(dataset_name, setting, algorithm, epochs, seed, device, log_di
         # PGSU hyperparameters
         'pgsu_min_replay': 0.1,
         'pgsu_max_replay': 0.5,
+        'pgsu_buffer_size': 300,
+        'pgsu_k_min': 2,
+        'pgsu_k_max': 16,
+        'pgsu_r_adp_min': 8,
+        'pgsu_r_adp_max': 64,
+        'pgsu_alpha_min': 0.1,
+        'pgsu_alpha_max': 1.0,
+        'pgsu_lambda_p': 0.1,
+        'pgsu_cnn_query_dim': 128,
     }
 
     trainer = CLTrainer(model, algorithm, device, cl_config)
@@ -455,15 +465,20 @@ def run_benchmark(dataset_name, setting, algorithm, epochs, seed, device, log_di
         ease = trainer.cl_params.get('ease') if algorithm == 'ease' else None
         prompt_module = None
         prompt_method = None
+        cnn_wrapper = None
         if algorithm in ['l2p', 'coda', 'dualprompt']:
             prompt_method = algorithm
             prompt_module = trainer.cl_params.get(algorithm)
         elif algorithm == 'epb' and 'epb' in trainer.cl_params:
             prompt_method = 'epb'
             prompt_module = trainer.cl_params['epb'].prompt_method
-        elif algorithm == 'pgsu' and 'pgsu_prompt' in trainer.cl_params:
-            prompt_method = 'pgsu'
-            prompt_module = trainer.cl_params['pgsu_prompt']
+        elif algorithm == 'pgsu' and 'pgsu' in trainer.cl_params:
+            pgsu = trainer.cl_params['pgsu']
+            if pgsu.deployment_path == 'transformer' and 'pgsu_prompt' in trainer.cl_params:
+                prompt_method = 'pgsu'
+                prompt_module = trainer.cl_params['pgsu_prompt']
+            elif pgsu.deployment_path == 'cnn' and 'pgsu_cnn_wrapper' in trainer.cl_params:
+                cnn_wrapper = trainer.cl_params['pgsu_cnn_wrapper']
 
         # Evaluate on all tasks seen so far
         for j in range(task_idx + 1):
@@ -471,7 +486,8 @@ def run_benchmark(dataset_name, setting, algorithm, epochs, seed, device, log_di
             test_acc = evaluator.evaluate_task(
                 model, task_data[j]['test'], task_idx, j, device,
                 task_classes=prev_task_classes, ease=ease,
-                prompt_module=prompt_module, prompt_method=prompt_method
+                prompt_module=prompt_module, prompt_method=prompt_method,
+                cnn_wrapper=cnn_wrapper
             )
             print(f"    Test Acc (Task {j + 1}): {test_acc:.2f}%")
 

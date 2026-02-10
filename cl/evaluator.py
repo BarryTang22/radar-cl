@@ -90,7 +90,8 @@ class CLEvaluator:
         self.current_task = -1
 
     def evaluate_task(self, model, dataloader, task_id_trained, task_id_eval,
-                      device, task_classes=None, ease=None, prompt_module=None, prompt_method=None):
+                      device, task_classes=None, ease=None, prompt_module=None,
+                      prompt_method=None, cnn_wrapper=None):
         """Evaluate model on a specific task.
 
         Args:
@@ -103,6 +104,7 @@ class CLEvaluator:
             ease: Optional EASERadar module for EASE algorithm
             prompt_module: Optional prompt module (L2P, CODAPrompt, or DualPrompt)
             prompt_method: Name of prompt method ('l2p', 'coda', or 'dualprompt')
+            cnn_wrapper: Optional CNNPGSUWrapper for CNN PGSU path
 
         Returns:
             Accuracy on the evaluated task
@@ -112,6 +114,8 @@ class CLEvaluator:
             ease.eval()
         if prompt_module is not None and hasattr(prompt_module, 'eval'):
             prompt_module.eval()
+        if cnn_wrapper is not None:
+            cnn_wrapper.eval()
 
         correct, total = 0, 0
         inc_classifier = get_incremental_classifier(model)
@@ -124,6 +128,10 @@ class CLEvaluator:
                 if ease is not None and hasattr(model, 'get_features'):
                     backbone_features = model.get_features(data)
                     outputs = ease(backbone_features, training=False)
+
+                # Handle CNN PGSU path
+                elif cnn_wrapper is not None:
+                    outputs = cnn_wrapper(data)
 
                 # Handle prompt-based methods
                 elif prompt_module is not None and hasattr(model, 'get_query'):
